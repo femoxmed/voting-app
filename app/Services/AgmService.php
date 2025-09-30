@@ -6,6 +6,8 @@ use App\Events\AgmClosed;
 use App\Models\Agm;
 use App\Notifications\AgmCreatedNotification;
 use App\Notifications\AgmLoginCredentialsNotification;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use App\Notifications\AgmActivatedNotification;
 use Illuminate\Support\Facades\Notification;
 
@@ -47,18 +49,29 @@ class AgmService
 
     public function closeAgm(Agm $agm): void
     {
-        // Close all open voting items associated with this AGM
-        $agm->votingItems()
-            ->where('status', '!=', 'closed')
-            ->update(['status' => 'closed', 'completed_at' => now()]);
+        try {
+            DB::transaction(function () use ($agm) {
+                // Close all open voting items associated with this AGM
+                $agm->votingItems()
+                    ->where('status', '!=', 'closed')
+                    ->update(['status' => 'closed', 'completed_at' => now()]);
 
-        // Mark the AGM itself as completed and set the end date
-        $agm->update([
-            'status' => 'completed',
-            'end_date' => now(),
-        ]);
+                // Mark the AGM itself as completed and set the end date
+                $agm->update([
+                    'status' => 'completed',
+                    'end_date' => now(),
+                ]);
+            });
 
-        // Dispatch a single event to handle all notifications
-        AgmClosed::dispatch($agm);
+            // Dispatch a single event to handle all notifications
+            AgmClosed::dispatch($agm);
+        } catch (\Exception $e) {
+            Log::error('Failed to close AGM.', [
+                'agm_id' => $agm->id,
+                'error' => $e->getMessage(),
+            ]);
+            // Re-throw the exception to be handled by the controller or global exception handler
+            throw $e;
+        }
     }
 }
